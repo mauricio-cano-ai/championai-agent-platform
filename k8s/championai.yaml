@@ -1,0 +1,40 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: championai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: championai
+  template:
+    metadata:
+      labels:
+        app: championai
+    spec:
+      containers:
+        - name: championai
+          image: registry.example/championai:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: championai-secrets
+                  key: openai-api-key
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: championai
+spec:
+  selector:
+    app: championai
+  ports:
+    - port: 80
+      targetPort: 8000

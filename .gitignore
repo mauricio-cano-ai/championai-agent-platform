@@ -13,3 +13,5 @@ htmlcov/
 .deepeval/
 *.log
 .DS_Store
+
+*.egg-info/

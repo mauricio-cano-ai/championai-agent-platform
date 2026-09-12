@@ -1,69 +1,63 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
-from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TaskStatus(StrEnum):
-    RECEIVED = "received"
-    INVESTIGATING = "investigating"
-    WAITING_APPROVAL = "waiting_approval"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    INVESTIGATING = "INVESTIGATING"
+    WAITING_APPROVAL = "WAITING_APPROVAL"
+    COMPLETED = "COMPLETED"
+    REJECTED = "REJECTED"
 
 
-class IncidentInput(BaseModel):
-    line_id: str = Field(min_length=1, examples=["PACK-03"])
-    description: str = Field(min_length=10)
-    output_drop_pct: float | None = Field(default=None, ge=0, le=100)
+class IncidentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(min_length=3, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    asset_id: str = Field(min_length=1, max_length=128)
+    summary: str = Field(min_length=5, max_length=2000)
+
+    @field_validator("summary")
+    @classmethod
+    def summary_must_have_content(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("summary must contain non-whitespace content")
+        return value
 
 
-class PlanStep(BaseModel):
-    id: str
-    agent: str
-    tool: str
-    purpose: str
+class Evidence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-
-class IncidentPlan(BaseModel):
-    objective: str
-    steps: list[PlanStep]
-    requires_human_approval: bool = True
-
-
-class ToolEvidence(BaseModel):
-    tool: str
-    data: dict[str, Any]
+    source: str = Field(min_length=1, max_length=80)
+    summary: str = Field(min_length=1, max_length=1000)
+    confidence: float = Field(ge=0, le=1)
 
 
 class ActionProposal(BaseModel):
-    action_type: str
-    reason: str
-    payload: dict[str, Any]
-    requires_approval: bool = True
+    model_config = ConfigDict(extra="forbid")
+
+    action: str = Field(min_length=1, max_length=200)
+    rationale: str = Field(min_length=1, max_length=1000)
+    risk: str = Field(pattern=r"^(low|medium|high)$")
 
 
-class TraceEvent(BaseModel):
-    at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    kind: str
-    detail: dict[str, Any]
+def _new_evidence_list() -> list[Evidence]:
+    return []
 
 
-class TaskView(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    idempotency_key: str
-    status: TaskStatus = TaskStatus.RECEIVED
-    incident: IncidentInput
-    plan: IncidentPlan | None = None
-    evidence: list[ToolEvidence] = Field(default_factory=list)
+class TaskRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    request: IncidentRequest
+    status: TaskStatus
+    plan: list[str] = Field(default_factory=list)
+    evidence: list[Evidence] = Field(default_factory=_new_evidence_list)
     proposal: ActionProposal | None = None
-    result: dict[str, Any] | None = None
-    trace: list[TraceEvent] = Field(default_factory=list)
-
-
-class ApprovalRequest(BaseModel):
-    approved_by: str = Field(min_length=2)
+    execution: dict[str, Any] | None = None
+    decision_by: str | None = None
+    decision_reason: str | None = None

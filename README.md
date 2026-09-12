@@ -1,206 +1,106 @@
-﻿# ChampionAI Agent Platform
+# ChampionAI Agent Platform
 
-**Runnable async Python engineering lab for a manufacturing incident agent platform.**
+**Runnable Python reference architecture for agentic systems that keep authority, side effects and human approval deterministic.**
 
-Built to demonstrate the software-engineering patterns behind reliable agentic systems â€” not just a chatbot demo.
+This repository is an engineering lab, not a claim that the manufacturing scenario is deployed in production. Its purpose is to make software-engineering decisions reviewable: typed contracts, idempotent task intake, bounded retries, explicit approval gates, atomic execution claims, deterministic tests and observable API boundaries.
 
-## What this project demonstrates
-
-| Area | Implementation |
-|---|---|
-| **API** | FastAPI |
-| **Typed contracts** | Pydantic |
-| **Async execution** | Python `asyncio` / parallel evidence collection |
-| **LLM planning** | OpenAI Structured Outputs |
-| **Agent â†’ tools** | MCP client/server |
-| **Agent â†’ agent** | A2A Agent Card, task lifecycle, artifacts |
-| **Orchestration** | Planner â†’ Investigator â†’ Executor |
-| **Safety** | Human approval gate before side effects |
-| **Reliability** | retries, exponential backoff, idempotency, duplicate-action protection |
-| **State** | in-memory store for deterministic tests + PostgreSQL store |
-| **Agent quality** | pytest + DeepEval behavioral evaluation |
-| **Scope control** | XML-structured system prompt + no-tool behavior for out-of-scope requests |
-| **Rollout patterns** | LaunchDarkly SDK lab for prompt/behavior versioning |
-
-## Architecture
-
-```mermaid
-flowchart LR
-    API[FastAPI] --> PLAN[LLM Planner<br/>Structured Output]
-    PLAN --> ORCH[Incident Orchestrator]
-
-    ORCH --> INV[Investigator Agent]
-    INV --> MCP[MCP Client]
-    MCP --> MCPS[MCP Server]
-    MCPS --> M1[get_line_metrics]
-    MCPS --> M2[get_recent_incidents]
-
-    ORCH --> HITL{Human approval?}
-    HITL -- approve --> EXEC[Executor / side effect]
-    HITL -- wait --> STATE[(Task state)]
-
-    A2AC[A2A Client] --> A2AS[A2A Investigator Agent]
-    A2AS --> MCP
-
-    ORCH --> STATE
-```
-
-## Reliability model
-
-The project intentionally separates **reasoning** from **authority**.
-
-The model may decide how to investigate, but deterministic software owns:
-
-- task identity
-- idempotency
-- action claims
-- approval state
-- side-effect execution
-- persisted task state
-
-### Duplicate side-effect protection
-
-A deterministic action ID is derived from task/action identity. The store must grant the claim only once before the external effect is executed.
-
-This lets multiple callers safely converge on a single business action.
-
-### Retry behavior
-
-Transient tool failures use bounded retries with exponential backoff and jitter. Permanent failures remain visible rather than being silently hidden.
-
-### Human approval
-
-The executor prepares the action, but the maintenance-ticket side effect is gated by explicit human approval.
-
-## MCP: agent-to-tool boundary
-
-The Investigator obtains evidence through an MCP client instead of directly importing the tool implementation.
-
-Tools expose structured outputs for:
-
-- current line metrics
-- recent matching incidents
-
-This keeps the agent/tool contract explicit and transportable.
-
-## A2A: agent-to-agent boundary
-
-A remote Investigator agent exposes:
-
-- an Agent Card
-- discoverable skills
-- task state
-- progress messages
-- structured artifacts
-
-The client discovers the remote agent and receives the investigation result through the A2A task lifecycle.
-
-**Mental model:**
-
-- **MCP:** agent â†’ tools/resources
-- **A2A:** agent â†’ another agent
-
-## LLM Structured Outputs
-
-The runtime Planner uses a typed Pydantic output contract so planning is machine-validatable before orchestration proceeds.
-
-The deterministic Planner remains available for repeatable unit tests.
-
-## Agent evaluation
-
-The project separates deterministic tests from behavioral AI evaluation:
-
-- `pytest` validates orchestration, retries, idempotency, and duplicate approval behavior
-- `DeepEval` validates agent behavior such as scope enforcement and tool selection
-
-## Scope enforcement
-
-A structured system prompt defines:
-
-- role
-- allowed domain
-- forbidden domain
-- delegation rules
-- tool-selection policy
-- out-of-scope behavior
-
-Out-of-scope requests must select `tool=none`.
-
-## Selected files
+## What a reviewer can verify in 5 minutes
 
 ```text
-app/
-â”œâ”€â”€ api.py
-â”œâ”€â”€ domain.py
-â”œâ”€â”€ agents.py
-â”œâ”€â”€ orchestrator.py
-â”œâ”€â”€ reliability.py
-â”œâ”€â”€ store.py
-â”œâ”€â”€ postgres_store.py
-â”œâ”€â”€ llm_planner.py
-â”œâ”€â”€ mcp_server.py
-â”œâ”€â”€ mcp_tools_client.py
-â”œâ”€â”€ a2a_server.py
-â”œâ”€â”€ qad_scope_agent.py
-â””â”€â”€ launchdarkly_lab.py
-
-tests/
-â””â”€â”€ test_orchestrator.py
-
-evals/
-â””â”€â”€ test_qad_agent_eval.py
+POST /v1/incidents
+      │
+      ▼
+ idempotent request key ──► Planner ──► Investigator
+      │                         │              │
+      │                         └──── evidence┘
+      ▼
+WAITING_APPROVAL  ◄── typed action proposal
+      │
+      ├── reject ──► REJECTED
+      │
+      └── approve ─► atomic execution claim ─► Executor ─► COMPLETED
 ```
+
+| Engineering concern | Evidence in this repo |
+|---|---|
+| Typed Python API | FastAPI + Pydantic contracts in `app/api.py` and `app/domain.py` |
+| Orchestration | Planner → Investigator → proposal → approval → executor in `app/orchestrator.py` |
+| Human-in-the-loop | Side effects are impossible before explicit approval |
+| Idempotency | Request-id index and atomic execution claim in `app/store.py` |
+| Reliability | Bounded retry policy only for transient failures in `app/reliability.py` |
+| Quality gates | pytest + branch coverage ≥90%, Ruff, Pyright strict, Docker build in CI |
+| Observability | Structured JSON event helper; health/readiness endpoints |
+| Interoperability | Transport-independent MCP/A2A contract examples under `examples/` |
+| AI quality | Deterministic software tests separated from optional behavioral evals under `evals/` |
+
+## Why the boundaries matter
+
+An LLM or agent may propose what to do. It does **not** own authorization, idempotency or the right to create external side effects. Those are ordinary software invariants and remain deterministic. The core rule is:
+
+> **model reasoning may be probabilistic; execution authority may not be.**
+
+That is why approval and duplicate-action protection live outside the agent implementation.
 
 ## Run locally
 
-### 1. Create an environment
+Requires Python 3.11+.
 
 ```bash
 python -m venv .venv
-```
-
-Activate it and install the project:
-
-```bash
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
 python -m pip install -e ".[dev]"
-```
-
-### 2. Configure environment
-
-Create `.env` locally:
-
-```text
-OPENAI_API_KEY=<your-key>
-OPENAI_MODEL=gpt-5.6-luna
-```
-
-Never commit `.env`.
-
-### 3. Run deterministic tests
-
-```bash
-pytest tests/test_orchestrator.py -v
-```
-
-### 4. Run the API
-
-```bash
+make verify
 uvicorn app.api:app --reload
 ```
 
-## Engineering intent
+Open `http://127.0.0.1:8000/docs` for the generated OpenAPI UI.
 
-This repository is deliberately small enough to review quickly.
+Example:
 
-The goal is to make the engineering signals obvious:
+```bash
+curl -X POST http://127.0.0.1:8000/v1/incidents \
+  -H "content-type: application/json" \
+  -d '{"request_id":"demo-001","asset_id":"line-4","summary":"Temperature excursion after a configuration change"}'
+```
 
-**typed contracts Â· async execution Â· agent/tool boundaries Â· agent/agent boundaries Â· durable authority Â· idempotency Â· HITL Â· behavioral evaluation**
+The response stops at `WAITING_APPROVAL`; the executor has not run.
 
-It is a hands-on engineering lab, not a claim that this manufacturing system is deployed in production.
+## Verification
 
----
+```bash
+python -m pytest
+coverage run -m pytest && coverage report -m
+python -m ruff check app tests
+pyright
+docker build -t championai-agent-platform .
+```
 
-**Mauricio Alfonso Cano**  
-Applied AI & Agentic Systems Engineer  
-[LinkedIn](https://www.linkedin.com/in/mauricio-alfonso-cano-ai/) Â· [GitHub](https://github.com/mauricio-cano-ai)
+CI runs the same deterministic checks on Python 3.11 and 3.12, plus a container build. CodeQL and Dependabot are configured separately.
 
+## MCP / A2A
+
+The runnable core intentionally does not depend on a specific agent transport. `examples/mcp_boundary.py` and `examples/a2a_boundary.py` show the typed boundary shapes; install `.[interop]` when wiring those contracts to actual MCP or A2A SDK transports. This keeps orchestration testable without a network and prevents a transport SDK from becoming the architecture.
+
+## Behavioral evaluation
+
+`pytest` validates invariants. Model-behavior evaluation belongs under `evals/` and is opt-in because live-provider tests can be non-deterministic, network-dependent and billable. There are deliberately no fabricated eval scores in this repository.
+
+## Architecture & operating docs
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- [`docs/FAILURE_MODES.md`](docs/FAILURE_MODES.md)
+- [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)
+- [`docs/adr/0001-deterministic-authority-boundary.md`](docs/adr/0001-deterministic-authority-boundary.md)
+- [`docs/adr/0002-separate-evals-from-deterministic-ci.md`](docs/adr/0002-separate-evals-from-deterministic-ci.md)
+- [`SECURITY.md`](SECURITY.md)
+- [`CONTRIBUTING.md`](CONTRIBUTING.md)
+
+## Related production evidence
+
+This lab complements two separate repositories:
+
+- **EasyAIgent Agentic Systems Portfolio** — sanitized patterns from a real multitenant AI-enabled CRM/operations platform.
+- **AWS Bedrock Production Integration** — sanitized, reproducible counterpart of a live EasyAIgent path deployed with API Gateway, Lambda, Bedrock Nova, DynamoDB, IAM/SSM and CloudWatch/X-Ray.
+
+— **Mauricio Alfonso Cano** · [GitHub](https://github.com/mauricio-cano-ai) · [LinkedIn](https://www.linkedin.com/in/mauricio-alfonso-cano-ai/)

@@ -1,53 +1,52 @@
 from __future__ import annotations
 
 import asyncio
-from abc import ABC, abstractmethod
-from copy import deepcopy
 
-from app.domain import TaskView
+from .domain import TaskRecord
 
 
-class TaskStore(ABC):
-    @abstractmethod
-    async def get_by_idempotency_key(self, key: str) -> TaskView | None: ...
+class InMemoryTaskStore:
+    """Deterministic test/demo store with atomic idempotency and execution claims.
 
-    @abstractmethod
-    async def save(self, task: TaskView) -> TaskView: ...
+    Production adapters should provide the same semantics with durable storage.
+    """
 
-    @abstractmethod
-    async def get(self, task_id: str) -> TaskView | None: ...
-
-    @abstractmethod
-    async def claim_action(self, action_id: str) -> bool:
-        """Return True only for the first caller that claims this side effect."""
-
-
-class InMemoryTaskStore(TaskStore):
     def __init__(self) -> None:
-        self.tasks: dict[str, TaskView] = {}
-        self.by_key: dict[str, str] = {}
-        self.claimed_actions: set[str] = set()
+        self._tasks: dict[str, TaskRecord] = {}
+        self._request_index: dict[str, str] = {}
+        self._execution_claims: set[str] = set()
         self._lock = asyncio.Lock()
 
-    async def get_by_idempotency_key(self, key: str) -> TaskView | None:
+    async def get_by_request_id(self, request_id: str) -> TaskRecord | None:
         async with self._lock:
-            task_id = self.by_key.get(key)
-            return deepcopy(self.tasks.get(task_id)) if task_id else None
+            task_id = self._request_index.get(request_id)
+            task = self._tasks.get(task_id) if task_id else None
+            return task.model_copy(deep=True) if task else None
 
-    async def save(self, task: TaskView) -> TaskView:
+    async def get(self, task_id: str) -> TaskRecord | None:
         async with self._lock:
-            self.tasks[task.id] = deepcopy(task)
-            self.by_key[task.idempotency_key] = task.id
-            return deepcopy(task)
+            task = self._tasks.get(task_id)
+            return task.model_copy(deep=True) if task else None
 
-    async def get(self, task_id: str) -> TaskView | None:
+    async def create(self, task: TaskRecord) -> TaskRecord:
         async with self._lock:
-            task = self.tasks.get(task_id)
-            return deepcopy(task) if task else None
+            existing_id = self._request_index.get(task.request.request_id)
+            if existing_id:
+                return self._tasks[existing_id].model_copy(deep=True)
+            self._tasks[task.task_id] = task.model_copy(deep=True)
+            self._request_index[task.request.request_id] = task.task_id
+            return task.model_copy(deep=True)
 
-    async def claim_action(self, action_id: str) -> bool:
+    async def save(self, task: TaskRecord) -> TaskRecord:
         async with self._lock:
-            if action_id in self.claimed_actions:
+            if task.task_id not in self._tasks:
+                raise KeyError(task.task_id)
+            self._tasks[task.task_id] = task.model_copy(deep=True)
+            return task.model_copy(deep=True)
+
+    async def claim_execution(self, task_id: str) -> bool:
+        async with self._lock:
+            if task_id in self._execution_claims:
                 return False
-            self.claimed_actions.add(action_id)
+            self._execution_claims.add(task_id)
             return True

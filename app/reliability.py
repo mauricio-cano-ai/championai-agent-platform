@@ -1,30 +1,34 @@
 from __future__ import annotations
 
 import asyncio
-import random
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import TypeVar
 
 T = TypeVar("T")
 
 
-async def retry_async(
-    fn: Callable[[], Awaitable[T]],
-    *,
-    attempts: int = 3,
-    base_delay_s: float = 0.05,
-    jitter_s: float = 0.02,
-) -> T:
-    """Retry transient async work with bounded exponential backoff + jitter."""
-    last_error: Exception | None = None
-    for attempt in range(attempts):
+@dataclass(frozen=True, slots=True)
+class RetryPolicy:
+    max_attempts: int = 3
+    base_delay_seconds: float = 0.2
+    max_delay_seconds: float = 2.0
+
+
+def _retryable(exc: Exception) -> bool:
+    return isinstance(exc, (TimeoutError, ConnectionError))
+
+
+async def retry_async(operation: Callable[[], Awaitable[T]], policy: RetryPolicy) -> T:
+    if policy.max_attempts < 1:
+        raise ValueError("max_attempts must be >= 1")
+    for attempt in range(1, policy.max_attempts + 1):
         try:
-            return await fn()
-        except (TimeoutError, ConnectionError) as exc:
-            last_error = exc
-            if attempt == attempts - 1:
-                break
-            delay = base_delay_s * (2**attempt) + random.random() * jitter_s
-            await asyncio.sleep(delay)
-    assert last_error is not None
-    raise last_error
+            return await operation()
+        except Exception as exc:
+            if not _retryable(exc) or attempt == policy.max_attempts:
+                raise
+            delay = min(policy.max_delay_seconds, policy.base_delay_seconds * (2 ** (attempt - 1)))
+            if delay > 0:
+                await asyncio.sleep(delay)
+    raise RuntimeError("unreachable")

@@ -1,6 +1,6 @@
 # ChampionAI Agent Platform
 
-**Runnable Python reference architecture for agentic systems that keep authority, side effects and human approval deterministic.**
+**Runnable Python reference architecture for agentic systems with a real MCP v2 evidence gateway, while keeping authority, side effects and human approval deterministic.**
 
 This repository is an engineering lab, not a claim that the manufacturing scenario is deployed in production. Its purpose is to make software-engineering decisions reviewable: typed contracts, idempotent task intake, bounded retries, explicit approval gates, atomic execution claims, deterministic tests and observable API boundaries.
 
@@ -8,27 +8,27 @@ This repository is an engineering lab, not a claim that the manufacturing scenar
 
 ```text
 POST /v1/incidents
-      │
-      ▼
- idempotent request key ──► Planner ──► Investigator
-      │                         │              │
-      │                         └──── evidence┘
-      ▼
-WAITING_APPROVAL  ◄── typed action proposal
-      │
-      ├── reject ──► REJECTED
-      │
-      └── approve ─► atomic execution claim ─► Executor ─► COMPLETED
+      â”‚
+      â–¼
+ idempotent request key â”€â”€â–º Planner â”€â”€â–º Investigator
+      â”‚                         â”‚              â”‚
+      â”‚                         â””â”€â”€â”€â”€ evidenceâ”˜
+      â–¼
+WAITING_APPROVAL  â—„â”€â”€ typed action proposal
+      â”‚
+      â”œâ”€â”€ reject â”€â”€â–º REJECTED
+      â”‚
+      â””â”€â”€ approve â”€â–º atomic execution claim â”€â–º Executor â”€â–º COMPLETED
 ```
 
 | Engineering concern | Evidence in this repo |
 |---|---|
 | Typed Python API | FastAPI + Pydantic contracts in `app/api.py` and `app/domain.py` |
-| Orchestration | Planner → Investigator → proposal → approval → executor in `app/orchestrator.py` |
+| Orchestration | Planner â†’ Investigator â†’ proposal â†’ approval â†’ executor in `app/orchestrator.py` |
 | Human-in-the-loop | Side effects are impossible before explicit approval |
 | Idempotency | Request-id index and atomic execution claim in `app/store.py` |
 | Reliability | Bounded retry policy only for transient failures in `app/reliability.py` |
-| Quality gates | pytest + branch coverage ≥90%, Ruff, Pyright strict, Docker build in CI |
+| Quality gates | pytest + branch coverage â‰¥90%, Ruff, Pyright strict, Docker build in CI |
 | Observability | Structured JSON event helper; health/readiness endpoints |
 | Interoperability | Transport-independent MCP/A2A contract examples under `examples/` |
 | AI quality | Deterministic software tests separated from optional behavioral evals under `evals/` |
@@ -78,10 +78,19 @@ docker build -t championai-agent-platform .
 
 CI runs the same deterministic checks on Python 3.11 and 3.12, plus a container build. CodeQL and Dependabot are configured separately.
 
-## MCP / A2A
+## MCP v2 interoperability
 
-The runnable core intentionally does not depend on a specific agent transport. `examples/mcp_boundary.py` and `examples/a2a_boundary.py` show the typed boundary shapes; install `.[interop]` when wiring those contracts to actual MCP or A2A SDK transports. This keeps orchestration testable without a network and prevents a transport SDK from becoming the architecture.
+ChampionAI includes a real MCP v2 evidence gateway implemented with the official Model Context Protocol Python SDK.
 
+The server in `app/mcp_server.py` exposes typed, read-only tools for incident context, asset context, and safety constraints. The protocol smoke test in `tests/test_mcp_v2_smoke.py` connects with the official MCP client in-process, discovers the tools, and verifies typed input schemas and unique tool names.
+
+MCP is intentionally an interoperability boundary, not an authority layer. Human approval, authorization, idempotency, execution claims, and mutating side effects remain deterministic application responsibilities.
+
+Reviewer smoke test:
+
+    python -m pytest tests/test_mcp_v2_smoke.py -q
+
+A2A remains represented separately by the transport-independent boundary example under `examples/`.
 ## Behavioral evaluation
 
 `pytest` validates invariants. Model-behavior evaluation belongs under `evals/` and is opt-in because live-provider tests can be non-deterministic, network-dependent and billable. There are deliberately no fabricated eval scores in this repository.
@@ -100,7 +109,7 @@ The runnable core intentionally does not depend on a specific agent transport. `
 
 This lab complements two separate repositories:
 
-- **EasyAIgent Agentic Systems Portfolio** — sanitized patterns from a real multitenant AI-enabled CRM/operations platform.
-- **AWS Bedrock Production Integration** — sanitized, reproducible counterpart of a live EasyAIgent path deployed with API Gateway, Lambda, Bedrock Nova, DynamoDB, IAM/SSM and CloudWatch/X-Ray.
+- **EasyAIgent Agentic Systems Portfolio** â€” sanitized patterns from a real multitenant AI-enabled CRM/operations platform.
+- **AWS Bedrock Production Integration** â€” sanitized, reproducible counterpart of a live EasyAIgent path deployed with API Gateway, Lambda, Bedrock Nova, DynamoDB, IAM/SSM and CloudWatch/X-Ray.
 
-— **Mauricio Alfonso Cano** · [GitHub](https://github.com/mauricio-cano-ai) · [LinkedIn](https://www.linkedin.com/in/mauricio-alfonso-cano-ai/)
+â€” **Mauricio Alfonso Cano** Â· [GitHub](https://github.com/mauricio-cano-ai) Â· [LinkedIn](https://www.linkedin.com/in/mauricio-alfonso-cano-ai/)
